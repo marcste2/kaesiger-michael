@@ -1,0 +1,14 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "kaesiger-michael-leaderboard",
+	"main": "worker.js",
+	"compatibility_date": "2026-07-27",
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "kaesiger-michael-leaderboard",
+			"database_id": "e18dc5b6-bcdf-4930-ad1c-f9624aafd65c",
+			"remote": true
+		}
+	]
+}

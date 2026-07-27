@@ -52,6 +52,21 @@
     display: none;
     padding: 8px 10px;
   }
+  #pauseFleeBtn {
+    left: 50%; top: 56%; transform: translateX(-50%);
+    display: none;
+    font-size: 20px; font-weight: 700;
+    padding: 14px 28px;
+    white-space: nowrap;
+  }
+  #leaveBtn {
+    left: 50%; top: 65%; transform: translateX(-50%);
+    display: none;
+    font-size: 15px;
+    opacity: 0.82;
+    padding: 12px 24px;
+    white-space: nowrap;
+  }
   /* Startseite: Modus-Auswahl */
   #playBtn      { left: 50%; bottom: 33%; transform: translateX(-50%); display: none; font-size: 26px; font-weight: 700; padding: 12px 28px; white-space: nowrap; }
   #challengeBtn { left: 50%; bottom: 21%; transform: translateX(-50%); display: none; font-size: 14px; opacity: 0.85; padding: 10px 14px; text-align: center; line-height: 1.5; white-space: nowrap; }
@@ -78,6 +93,8 @@
   <button class="ui" id="fleeBtn">Abhauen</button>
   <button class="ui" id="muteBtn">Ton an</button>
   <button class="ui" id="pauseBtn">Pause</button>
+  <button class="ui" id="pauseFleeBtn">Abhauen &amp; sichern</button>
+  <button class="ui" id="leaveBtn">Spiel verlassen</button>
   <button class="ui" id="playBtn">Jetzt spielen</button>
   <button class="ui" id="challengeBtn">Heutige Challenge</button>
   <button class="ui" id="twodoorBtn">Zwei Türen</button>
@@ -86,7 +103,7 @@
   <button class="ui" id="boardBtn">Bestenliste</button>
   <button class="ui" id="backBtn">Zurück</button>
   <div id="nameWrap" class="ui">
-    <span class="lbl">Neuer Rekord — trag dich in die Bestenliste ein</span>
+    <span class="lbl" id="nameLabel">Wähle deinen Benutzernamen</span>
     <input id="nameInput" maxlength="12" placeholder="Dein Name" autocomplete="off" spellcheck="false">
     <button class="ui" id="nameOk">OK</button>
   </div>
@@ -261,9 +278,12 @@ const againBtn = document.getElementById('againBtn');
 const boardBtn = document.getElementById('boardBtn');
 const backBtn = document.getElementById('backBtn');
 const nameWrap = document.getElementById('nameWrap');
+const nameLabel = document.getElementById('nameLabel');
 const nameInput = document.getElementById('nameInput');
 const nameOk = document.getElementById('nameOk');
 const pauseBtn = document.getElementById('pauseBtn');
+const pauseFleeBtn = document.getElementById('pauseFleeBtn');
+const leaveBtn = document.getElementById('leaveBtn');
 const playBtn = document.getElementById('playBtn');
 const challengeBtn = document.getElementById('challengeBtn');
 const twodoorBtn = document.getElementById('twodoorBtn');
@@ -271,7 +291,7 @@ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matc
 
 /* Sichtbarkeit der Bedienelemente je nach Zustand */
 function hideActionButtons() {
-  for (const b of [fleeBtn, againBtn, shareBtn, boardBtn, backBtn, pauseBtn, playBtn, challengeBtn, twodoorBtn]) b.style.display = 'none';
+  for (const b of [fleeBtn, againBtn, shareBtn, boardBtn, backBtn, pauseBtn, pauseFleeBtn, leaveBtn, playBtn, challengeBtn, twodoorBtn]) b.style.display = 'none';
   nameWrap.style.display = 'none';
 }
 function showAftermathButtons(needName) {
@@ -280,10 +300,6 @@ function showAftermathButtons(needName) {
   shareBtn.style.display = 'block';
   boardBtn.style.display = 'block';
   boardBtn.style.bottom = '';               // Standardposition (CSS) für den Endscreen
-  if (needName) {
-    nameWrap.style.display = 'block';
-    nameInput.value = localStorage.getItem('km_name') || '';
-  }
 }
 function showStartButtons() {
   hideActionButtons();
@@ -315,6 +331,16 @@ function updateChallengeLabel() {
 function showBoardButtons() {
   hideActionButtons();
   backBtn.style.display = 'block';
+}
+function showPauseActions() {
+  fleeBtn.style.display = 'none';
+  pauseFleeBtn.style.display = 'block';
+  leaveBtn.style.display = 'block';
+}
+function hidePauseActions() {
+  pauseFleeBtn.style.display = 'none';
+  leaveBtn.style.display = 'none';
+  if (G.state === ST.PLAY || G.state === ST.DROP) fleeBtn.style.display = 'block';
 }
 
 // Das Bild füllt den Bildschirm randlos (cover). Ränder werden angeschnitten —
@@ -698,15 +724,30 @@ function wire(btn, fn) {
   btn.addEventListener('pointerdown', (e) => e.stopPropagation());
   btn.addEventListener('click', (e) => { e.stopPropagation(); audioInit(); fn(e); });
 }
-wire(playBtn, () => { startRun('endless'); doDrop(); });
+let pendingStart = null;
+function requestStart(mode, autoDrop) {
+  const saved = cleanName(localStorage.getItem('km_name') || '');
+  if (!saved) {
+    pendingStart = { mode, autoDrop: !!autoDrop };
+    hideActionButtons();
+    nameLabel.textContent = 'Wähle deinen Benutzernamen';
+    nameInput.value = '';
+    nameWrap.style.display = 'block';
+    setTimeout(() => nameInput.focus(), 40);
+    return;
+  }
+  startRun(mode);
+  if (autoDrop) doDrop();
+}
+wire(playBtn, () => requestStart('endless', true));
 wire(challengeBtn, () => {
   if (dailyDone()) { updateChallengeLabel(); return; }   // ein Versuch pro Tag
-  startRun('challenge'); doDrop();
+  requestStart('challenge', true);
 });
 // Zwei-Türen-Modus wird bewusst gewählt und startet ruhig — kein Auto-Ablegen,
 // der erste Tipp legt den ersten Gegenstand auf der aktiven (linken) Tür ab.
-wire(twodoorBtn, () => { startRun('twodoor'); });
-wire(againBtn, () => startRun(G.mode === 'twodoor' ? 'twodoor' : 'endless'));
+wire(twodoorBtn, () => requestStart('twodoor', false));
+wire(againBtn, () => requestStart(G.mode === 'twodoor' ? 'twodoor' : 'endless', false));
 wire(boardBtn, () => openBoard());
 wire(backBtn, () => closeBoard());
 wire(nameOk, () => submitName());
@@ -808,8 +849,24 @@ function untilMidnight() {
    schlüssel). Gekapselt, sodass später nur ein Server-Datenlieferant
    ergänzt werden muss; Darstellung bleibt identisch.
    ============================================================ */
+const PLAYER_ID_KEY = 'km_player_id';
+const LEADERBOARD_API = 'https://kaesiger-michael-leaderboard.stelzermarc10.workers.dev';
+function playerId() {
+  let id = localStorage.getItem(PLAYER_ID_KEY);
+  if (!id) {
+    id = (crypto.randomUUID ? crypto.randomUUID() :
+      'p-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12));
+    localStorage.setItem(PLAYER_ID_KEY, id);
+  }
+  return id;
+}
 const LB = {
   KEY: 'km_scores',
+  onlineRows: null,
+  onlineWeek: '',
+  mine: null,
+  status: 'local',
+  lastFetch: 0,
   weekKey(date) {
     // ISO-Kalenderwoche → "2026-W30"
     const d = new Date(Date.UTC((date||new Date()).getFullYear(), (date||new Date()).getMonth(), (date||new Date()).getDate()));
@@ -823,12 +880,57 @@ const LB = {
   save(list) { try { localStorage.setItem(this.KEY, JSON.stringify(list.slice(-200))); } catch (e) {} },
   week(wk) {
     wk = wk || this.weekKey();
+    if (this.onlineRows && this.onlineWeek === wk) return this.onlineRows;
     return this.all().filter(e => e.week === wk).sort((a, b) => b.score - a.score);
   },
   submit(name, score) {
     const list = this.all();
-    list.push({ name: name.slice(0, 12), score: score | 0, week: this.weekKey(), ts: Date.now(), me: true });
-    this.save(list);
+    const week = this.weekKey();
+    const id = playerId();
+    let best = score | 0;
+    for (const e of list) {
+      if (e.week === week && (e.playerId === id || e.me)) best = Math.max(best, e.score | 0);
+    }
+    const kept = list.filter(e => !(e.week === week && (e.playerId === id || e.me)));
+    kept.push({ playerId: id, name: name.slice(0, 12), score: best, week, ts: Date.now(), me: true });
+    this.save(kept);
+    this.push(name, best);
+  },
+  applyOnline(data) {
+    if (!data || !Array.isArray(data.top)) return;
+    this.onlineRows = data.top;
+    this.onlineWeek = data.week || this.weekKey();
+    this.mine = data.mine || null;
+    this.status = 'online';
+    this.lastFetch = Date.now();
+  },
+  async refresh() {
+    if (!LEADERBOARD_API) { this.status = 'local'; return; }
+    this.status = 'loading';
+    try {
+      const response = await fetch(LEADERBOARD_API + '/api/leaderboard?playerId=' +
+        encodeURIComponent(playerId()), { cache: 'no-store' });
+      if (!response.ok) throw new Error('leaderboard ' + response.status);
+      this.applyOnline(await response.json());
+    } catch (error) {
+      this.status = 'offline';
+      this.lastFetch = Date.now();
+    }
+  },
+  async push(name, score) {
+    if (!LEADERBOARD_API) return;
+    try {
+      const response = await fetch(LEADERBOARD_API + '/api/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: playerId(), name, score: score | 0 }),
+      });
+      if (!response.ok) throw new Error('score ' + response.status);
+      this.applyOnline(await response.json());
+    } catch (error) {
+      this.status = 'offline';
+      this.lastFetch = Date.now();
+    }
   },
 };
 
@@ -845,9 +947,18 @@ function submitName() {
   const n = cleanName(nameInput.value);
   if (n.length < 3) { nameInput.value = n; nameInput.focus(); return; }
   localStorage.setItem('km_name', n);
-  LB.submit(n, G.finalScore);
-  G.submitted = true;
   nameWrap.style.display = 'none';
+  if (pendingStart) {
+    const next = pendingStart;
+    pendingStart = null;
+    startRun(next.mode);
+    if (next.autoDrop) doDrop();
+    return;
+  }
+  if (G.outcome === 'escaped' && G.finalScore > 0) {
+    LB.submit(n, G.finalScore);
+    G.submitted = true;
+  }
   openBoard();
 }
 
@@ -855,6 +966,7 @@ function openBoard() {
   G.boardFrom = (G.state === ST.BEAT2) ? ST.BEAT2 : ST.START;
   G.state = ST.BOARD;
   showBoardButtons();
+  LB.refresh();
 }
 function closeBoard() {
   if (G.boardFrom === ST.BEAT2) { G.state = ST.BEAT2; showAftermathButtons(false); }
@@ -1191,7 +1303,34 @@ function startBeat1(outcome) {
 // aus Kompatibilität: der Lärm-/Einsturz-Tod ruft weiterhin beginFlood()
 function beginFlood() { startBeat1('caught'); }
 
-function escape() {
+function recordSecuredScore() {
+  const name = cleanName(localStorage.getItem('km_name') || '');
+  if (name && G.finalScore > 0) {
+    LB.submit(name, G.finalScore);
+    G.submitted = true;
+  }
+}
+
+function returnToStartAfterSave() {
+  G.state = ST.START;
+  G.paused = false;
+  pauseBtn.textContent = 'Pause';
+  G.stack = [];
+  G.other = null;
+  G.drop = null;
+  G.debris = [];
+  G.dust = [];
+  G.noise = 0;
+  G.floodT = 0;
+  G.beat2T = 0;
+  G.shaking = 0;
+  G.warnFlicker = 0;
+  G.inputLockUntil = G.time + 0.15;
+  if (ac) { try { ac.resume(); } catch (e) {} }
+  showStartButtons();
+}
+
+function escape(returnToStart) {
   if (G.state !== ST.PLAY && G.state !== ST.DROP) return;
   G.finalScore = G.score;
   if (G.score > G.best) {
@@ -1206,7 +1345,9 @@ function escape() {
   // beim Abhauen fallen die Sachen NICHT — sauber gesichert, aber fürs
   // Aftermath-Bild trotzdem Trümmer aus dem Stapel erzeugen
   spillStackToFloor();
+  recordSecuredScore();
   startBeat1('escaped');
+  if (returnToStart) returnToStartAfterSave();
 }
 
 /* Aftermath: aus dem aktuellen Stapel Objekte am Boden verstreuen,
@@ -1251,6 +1392,8 @@ function setPaused(p) {
   if (G.state !== ST.PLAY && G.state !== ST.DROP) return;
   G.paused = p;
   pauseBtn.textContent = p ? 'Weiter' : 'Pause';
+  if (p) showPauseActions();
+  else hidePauseActions();
   if (ac) { try { p ? ac.suspend() : ac.resume(); } catch (e) {} }
 }
 function togglePause() { setPaused(!G.paused); }
@@ -1262,8 +1405,7 @@ function tap() {
   switch (G.state) {
     case ST.START:
       // ein Tippen von der geladenen Seite legt gleich den ersten Gegenstand ab
-      startRun();
-      doDrop();
+      requestStart('endless', true);
       break;
     case ST.PLAY:
       // erster vom Spieler gesteuerter Tap beendet den Erstspiel-Hinweis
@@ -1333,9 +1475,19 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
 });
 fleeBtn.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
-fleeBtn.addEventListener('click', (e) => { e.stopPropagation(); audioInit(); escape(); });
+fleeBtn.addEventListener('click', (e) => { e.stopPropagation(); audioInit(); escape(false); });
 pauseBtn.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
 pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); audioInit(); togglePause(); });
+wire(pauseFleeBtn, () => {
+  if (!G.paused) return;
+  setPaused(false);
+  escape(false);
+});
+wire(leaveBtn, () => {
+  if (!G.paused) return;
+  setPaused(false);
+  escape(true);
+});
 
 function indicatorWorldY() {
   return stackTopY() - 70;
@@ -1459,6 +1611,12 @@ function update(dt) {
   if (G.state === ST.START && G.time - (G._lblT || -9) > 1) {
     G._lblT = G.time;
     updateChallengeLabel();
+  }
+  // Geöffnete Bestenliste regelmäßig neu laden, damit neue Ergebnisse anderer
+  // Geräte ohne manuelles Aktualisieren erscheinen.
+  if (G.state === ST.BOARD && LEADERBOARD_API &&
+      LB.status !== 'loading' && Date.now() - LB.lastFetch > 10000) {
+    LB.refresh();
   }
 
   // Staubpartikel rieseln und verblassen (unabhängig vom Zustand)
@@ -1611,9 +1769,9 @@ function enterBeat2() {
   G.noise = 0;          // Licht aus, Spalt zu — der Flur liegt im Dunkeln
   G.inputLockUntil = G.time + 0.5;
   if (ac) { try { ac.resume(); } catch (e) {} }
-  // Bestenlisten-Eintrag: nur gesicherte Runs, die den eigenen Rekord schlagen
-  const needName = (G.outcome === 'escaped' && G.finalScore > 0 && G.newBest);
-  showAftermathButtons(needName);
+  // Der Benutzername wurde bereits vor dem ersten Spiel gespeichert; gesicherte
+  // Runs werden beim Abhauen automatisch in die Bestenliste übernommen.
+  showAftermathButtons(false);
 }
 
 /* ============================================================
@@ -2195,7 +2353,7 @@ function drawBoard() {
   ctx.fillStyle = 'rgba(3,7,10,0.72)';
   ctx.fillRect(-200, -300, W + 400, H + 600);
   hardText('Bestenliste', W / 2, 90, FONT_DISPLAY(34), OFFWHITE);
-  softText('Diese Woche · ' + LB.weekKey(), W / 2, 114, '11px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
+  softText('Diese Woche · ' + (LB.onlineWeek || LB.weekKey()), W / 2, 114, '11px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
 
   // Tagesliste der Challenge — wird um Mitternacht automatisch hinfällig
   const dr = dailyRecord();
@@ -2208,7 +2366,6 @@ function drawBoard() {
   }
 
   const rows = LB.week();
-  const myName = localStorage.getItem('km_name');
   let y = 158;
   if (!rows.length) {
     softText('Noch keine Einträge diese Woche.', W / 2, 200, '13px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
@@ -2218,14 +2375,29 @@ function drawBoard() {
     const top = rows.slice(0, 12);
     for (let i = 0; i < top.length; i++) {
       const e = top[i];
-      const mine = e.me || e.name === myName;
+      const mine = e.me || e.playerId === playerId();
       const col = mine ? COL.cheese : OFFWHITE;
-      const rank = String(i + 1).padStart(2, ' ');
+      const rank = String(e.rank || i + 1).padStart(2, ' ');
       softText(rank + '  ' + e.name, 70, y, '14px ui-monospace, Consolas, monospace', col, 'left');
       softText(String(e.score), W - 70, y, '14px ui-monospace, Consolas, monospace', col, 'right');
       y += 24;
     }
+    const mineInTop = top.some(e => e.me || e.playerId === playerId());
+    const own = LB.mine;
+    if (own && !mineInTop) {
+      y += 8;
+      softText(String(own.rank).padStart(2, ' ') + '  ' + own.name, 70, y,
+        '14px ui-monospace, Consolas, monospace', COL.cheese, 'left');
+      softText(String(own.score), W - 70, y,
+        '14px ui-monospace, Consolas, monospace', COL.cheese, 'right');
+    }
   }
+  const lbStatus = LB.status === 'loading' ? 'Wird aktualisiert …'
+    : LB.status === 'offline' ? 'Offline · lokaler Stand'
+    : LB.status === 'online' ? 'Live aktualisiert'
+    : 'Auf diesem Gerät';
+  softText(lbStatus, W / 2, 535, '10px ui-monospace, Consolas, monospace',
+    LB.status === 'online' ? COL.cheese : OFFWHITE_DIM);
   softText('Nur Name + Punkte, kein Konto, kein Tracking.', W / 2, 560, '10px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
 }
 
