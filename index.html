@@ -379,9 +379,10 @@ function showAftermathButtons(needName) {
   againBtn.style.display = 'block';
   shareBtn.style.display = 'block';
   boardBtn.style.display = 'block';
+  infoBtn.style.display = 'block';
   boardBtn.style.bottom = '';               // Standardposition (CSS) für den Endscreen
   const bright = G.outcome === 'escaped';
-  for (const b of [againBtn, shareBtn, boardBtn]) {
+  for (const b of [againBtn, shareBtn, boardBtn, infoBtn]) {
     b.style.color = bright ? '#30261b' : '';
     b.style.textShadow = bright ? '0 1px 2px rgba(255,255,255,0.8)' : '';
     b.style.webkitTextStroke = bright ? '0.6px rgba(255,255,255,0.9)' : '';
@@ -393,8 +394,9 @@ function setAftermathButtonFade(a) {
   againBtn.style.opacity = String(a);
   shareBtn.style.opacity = String(a);
   boardBtn.style.opacity = String(0.72 * a);
+  infoBtn.style.opacity = String(0.68 * a);
   const pe = a > 0.92 ? 'auto' : 'none';
-  againBtn.style.pointerEvents = shareBtn.style.pointerEvents = boardBtn.style.pointerEvents = pe;
+  againBtn.style.pointerEvents = shareBtn.style.pointerEvents = boardBtn.style.pointerEvents = infoBtn.style.pointerEvents = pe;
 }
 function showStartButtons() {
   hideActionButtons();
@@ -414,13 +416,20 @@ function showStartButtons() {
   infoBtn.style.pointerEvents = '';
   updateChallengeLabel();
 }
+let infoReturnView = 'start';
 function showInfo() {
+  infoReturnView = (G.state === ST.BEAT2) ? 'aftermath' : 'start';
   hideActionButtons();
   infoWrap.style.display = 'block';
 }
 function closeInfo() {
   infoWrap.style.display = 'none';
-  showStartButtons();
+  if (infoReturnView === 'aftermath' && G.state === ST.BEAT2) {
+    showAftermathButtons(false);
+    setAftermathButtonFade(1);
+  } else {
+    showStartButtons();
+  }
 }
 /* Challenge-Knopf zeigt entweder die Einladung oder das heutige Ergebnis
    samt Countdown bis Mitternacht (ein Versuch pro Tag). */
@@ -1054,6 +1063,17 @@ const LB = {
     }
   },
 };
+
+function personalRankText() {
+  const mine = LB.mine;
+  if (mine && Number.isFinite(Number(mine.rank))) {
+    return 'Dein Platz: #' + Number(mine.rank) + ' · Rekord ' + Number(mine.score || G.best || 0);
+  }
+  if ((G.best | 0) > 0) {
+    return LB.status === 'offline' ? 'Online-Platz gerade nicht verfügbar' : 'Dein Platz wird aktualisiert …';
+  }
+  return 'Sichere Punkte für deinen ersten Rang';
+}
 
 function cleanName(n) {
   n = (n || '').trim().replace(/\s+/g, ' ');
@@ -2719,6 +2739,10 @@ function drawBeat2() {
   const recY = 396;
   if (G.newBest) hardText('Neuer Rekord', W / 2, recY, FONT_DISPLAY(26), bright ? '#8a5a00' : COL.cheese, 'center', a);
   else if (rec) softText(rec, W / 2, recY, '14px ui-monospace, Consolas, monospace', normalCol);
+  if (G.best > 0) {
+    softText(personalRankText(), W / 2, 426,
+      '12px ui-monospace, Consolas, monospace', bright ? `rgba(116,76,9,${a})` : `rgba(255,217,59,${a})`);
+  }
 
   // 4–6) nochmal / teilen / bestenliste sind DOM-Buttons in der unteren Hälfte
 }
@@ -2734,6 +2758,8 @@ function drawBoard() {
   ctx.fillRect(-200, -300, W + 400, H + 600);
   hardText('Bestenliste', W / 2, 90, FONT_DISPLAY(34), OFFWHITE);
   softText('Allzeit · bester Spielstand', W / 2, 114, '11px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
+  softText(personalRankText(), W / 2, 136,
+    '12px ui-monospace, Consolas, monospace', LB.mine ? COL.cheese : OFFWHITE_DIM);
 
   // Tagesliste der Challenge — wird um Mitternacht automatisch hinfällig
   const dr = dailyRecord();
@@ -2741,12 +2767,12 @@ function drawBoard() {
     const res = dr.outcome === 'escaped'
       ? (dr.score + ' Punkte · ' + dr.items + ' Gegenstände')
       : ('erwischt · ' + dr.items + ' Gegenstände');
-    softText('Challenge ' + dateLabel() + ': ' + res, W / 2, 136,
+    softText('Challenge ' + dateLabel() + ': ' + res, W / 2, 156,
       '11px ui-monospace, Consolas, monospace', COL.cheese);
   }
 
   const rows = LB.list();
-  let y = 158;
+  let y = dr && dr.date === dateKey() ? 180 : 162;
   if (!rows.length) {
     softText('Noch keine Spielstände.', W / 2, 200, '13px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
     softText('Sichere Punkte und hol dir', W / 2, 226, '12px ui-monospace, Consolas, monospace', OFFWHITE_DIM);

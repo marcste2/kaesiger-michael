@@ -1,5 +1,9 @@
 const ALLOWED_ORIGINS = new Set([
   'https://marcste2.github.io',
+  'http://xn--ksigermichael-bfb.at',
+  'https://xn--ksigermichael-bfb.at',
+  'http://www.xn--ksigermichael-bfb.at',
+  'https://www.xn--ksigermichael-bfb.at',
 ]);
 const SCORE_MAX = 10000000;
 const RATE_WINDOW_MS = 60_000;
