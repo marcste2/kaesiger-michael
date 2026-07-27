@@ -22,11 +22,16 @@
   /* Bedienelemente: freier Text, kein Kasten, keine Füllung, keine Rundung */
   .ui {
     position: fixed;
-    font-family: ui-monospace, Consolas, "Cascadia Mono", monospace;
+    font-family: "Arial Black", Arial, Helvetica, sans-serif;
+    font-weight: 800;
     background: none; border: none; border-radius: 0;
-    color: #f2e8d5;
-    text-shadow: 0 1px 5px rgba(0,0,0,0.85), 0 0 2px rgba(0,0,0,0.7);
-    letter-spacing: 0.08em;
+    color: #fff;
+    -webkit-text-stroke: 0.6px rgba(0,0,0,0.95);
+    text-shadow:
+      -1px -1px 0 #000, 1px -1px 0 #000,
+      -1px  1px 0 #000, 1px  1px 0 #000,
+      0 2px 3px rgba(0,0,0,0.72);
+    letter-spacing: 0.025em;
     cursor: pointer;
     padding: 0;
     -webkit-appearance: none; appearance: none;
@@ -77,11 +82,11 @@
   #backBtn   { left: 50%; bottom: 7%;  transform: translateX(-50%); display: none; font-size: 15px; font-weight: 600; padding: 10px 24px; }
   /* Namensfeld für die Bestenliste — freistehend, nur Unterstrich */
   #nameWrap { left: 50%; bottom: 38%; transform: translateX(-50%); display: none; text-align: center; z-index: 6; width: 90%; }
-  #nameWrap .lbl { display:block; font-family: ui-monospace, Consolas, monospace; font-size: 12px; color:#ffd93b; letter-spacing:0.1em; margin-bottom: 10px; text-shadow: 0 1px 4px rgba(0,0,0,0.9); }
+  #nameWrap .lbl { display:block; font-family:"Arial Black", Arial, Helvetica, sans-serif; font-size: 12px; color:#fff; letter-spacing:0.04em; margin-bottom: 10px; text-shadow: 0 1px 4px rgba(0,0,0,0.9); }
   #nameInput {
-    background: none; border: none; border-bottom: 1px solid rgba(255,210,90,0.6);
-    color: #ffd93b; font-family: ui-monospace, Consolas, monospace; font-size: 22px;
-    text-align: center; width: 200px; padding: 4px 2px; outline: none; letter-spacing: 0.12em;
+    background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.75);
+    color: #fff; font-family:"Arial Black", Arial, Helvetica, sans-serif; font-size: 22px;
+    text-align: center; width: 200px; padding: 4px 2px; outline: none; letter-spacing: 0.04em;
     text-shadow: 0 1px 5px rgba(0,0,0,0.85);
   }
   #nameOk { display:inline-block; margin-left: 10px; font-size: 15px; font-weight: 600; position: static; }
@@ -125,6 +130,8 @@ const STAIR_CAUGHT_PORTRAIT_IMG = "data:image/webp;base64,UklGRiTGAABXRUJQVlA4IB
 
 const TUNE = {
   swingRange: 90,          // Pendelbereich des Indikators (± px)
+  swingEntryOffset: 90,    // neuer Gegenstand startet sichtbar links außerhalb
+  swingEntrySpeed: 500,    // Einschubgeschwindigkeit bis zum Pendelbereich (px/s)
   swingSpeedBase: 130,     // Indikator-Grundgeschwindigkeit (px/s)
   swingSpeedGrowth: 1.08,  // Geschwindigkeitszuwachs pro Gegenstand (Faktor)
   swingSpeedMax: 400,      // Deckel (px/s)
@@ -315,6 +322,7 @@ function showAftermathButtons(needName) {
   for (const b of [againBtn, shareBtn, boardBtn]) {
     b.style.color = bright ? '#30261b' : '';
     b.style.textShadow = bright ? '0 1px 2px rgba(255,255,255,0.8)' : '';
+    b.style.webkitTextStroke = bright ? '0.6px rgba(255,255,255,0.9)' : '';
   }
   setAftermathButtonFade(0);
 }
@@ -335,6 +343,7 @@ function showStartButtons() {
   for (const b of [playBtn, challengeBtn, boardBtn]) {
     b.style.color = '';
     b.style.textShadow = '';
+    b.style.webkitTextStroke = '';
   }
   boardBtn.style.opacity = '';
   boardBtn.style.pointerEvents = '';
@@ -786,10 +795,10 @@ function requestStart(mode, autoDrop) {
   startRun(mode);
   if (autoDrop) doDrop();
 }
-wire(playBtn, () => requestStart('endless', true));
+wire(playBtn, () => requestStart('endless', false));
 wire(challengeBtn, () => {
   if (dailyDone()) { updateChallengeLabel(); return; }   // ein Versuch pro Tag
-  requestStart('challenge', true);
+  requestStart('challenge', false);
 });
 // Zwei-Türen-Modus wird bewusst gewählt und startet ruhig — kein Auto-Ablegen,
 // der erste Tipp legt den ersten Gegenstand auf der aktiven (linken) Tür ab.
@@ -1130,8 +1139,9 @@ const G = {
   panT: 0,             // Restzeit des Türwechsel-Schwenks (0 = steht) — sperrt das Ablegen
   noise: 0,
   // Indikator
-  swingPos: 0,
+  swingPos: -TUNE.swingRange - TUNE.swingEntryOffset,
   swingDir: 1,
+  swingEntering: true,
   swingSpeed: TUNE.swingSpeedBase,
   nextItem: null,
   // Fall-Animation
@@ -1181,6 +1191,12 @@ function stackHeight() {
   return h;
 }
 function stackTopY() { return stackAnchorY() - stackHeight(); }
+
+function resetSwingFromLeft() {
+  G.swingPos = -TUNE.swingRange - TUNE.swingEntryOffset;
+  G.swingDir = 1;
+  G.swingEntering = true;
+}
 
 function comOffset() {
   if (!G.stack.length) return 0;
@@ -1251,8 +1267,7 @@ function startRun(mode) {
   G.submitted = false;
   G.beat2T = 0;
   G.noise = 0;
-  G.swingPos = 0;
-  G.swingDir = 1;
+  resetSwingFromLeft();
   G.swingSpeed = TUNE.swingSpeedBase;
   if (G.mode === 'challenge') {
     // erster Gegenstand ist fest vorgegeben und wechselt täglich
@@ -1489,8 +1504,9 @@ function tap() {
   if (G.time < G.inputLockUntil) return;
   switch (G.state) {
     case ST.START:
-      // ein Tippen von der geladenen Seite legt gleich den ersten Gegenstand ab
-      requestStart('endless', true);
+      // Ein Tippen startet den Run. Der erste Gegenstand fährt danach sichtbar
+      // von links ein und wird erst mit dem nächsten Tippen abgelegt.
+      requestStart('endless', false);
       break;
     case ST.PLAY:
       // erster vom Spieler gesteuerter Tap beendet den Erstspiel-Hinweis
@@ -1621,6 +1637,9 @@ function landDrop() {
   G.swingSpeed = Math.min(TUNE.swingSpeedMax, G.swingSpeed * TUNE.swingSpeedGrowth);
   G.nextItem = G.afterItem || pickItem();
   G.afterItem = pickItem();
+  // Jeder neue Gegenstand beginnt links. Wer sofort weiterhämmert, wirft ihn
+  // deshalb deutlich neben die Auflage statt automatisch wieder in die Mitte.
+  resetSwingFromLeft();
   // Kamera fährt jetzt weich auf die neue Spitze; erst danach pendelt es wieder
   if (G.levelTransitionT <= 0) {
     G.camFrom = G.cam;
@@ -1775,10 +1794,19 @@ function update(dt) {
   }
 
   if (G.state === ST.PLAY && G.camAnimT <= 0 && G.panT <= 0 && G.levelTransitionT <= 0) {
-    // Indikator pendelt — erst wenn die Kamera (auch der Türwechsel-Schwenk) ruht
-    G.swingPos += G.swingDir * G.swingSpeed * dt;
-    if (G.swingPos > TUNE.swingRange) { G.swingPos = TUNE.swingRange; G.swingDir = -1; }
-    if (G.swingPos < -TUNE.swingRange) { G.swingPos = -TUNE.swingRange; G.swingDir = 1; }
+    // Jeder Gegenstand wird zuerst sichtbar von links eingeschoben. Erst danach
+    // beginnt das normale Pendeln im Zielbereich.
+    if (G.swingEntering) {
+      G.swingPos += TUNE.swingEntrySpeed * dt;
+      if (G.swingPos >= -TUNE.swingRange) {
+        G.swingPos = -TUNE.swingRange;
+        G.swingEntering = false;
+      }
+    } else {
+      G.swingPos += G.swingDir * G.swingSpeed * dt;
+      if (G.swingPos > TUNE.swingRange) { G.swingPos = TUNE.swingRange; G.swingDir = -1; }
+      if (G.swingPos < -TUNE.swingRange) { G.swingPos = -TUNE.swingRange; G.swingDir = 1; }
+    }
   }
 
   if (G.state === ST.DROP && G.drop) {
@@ -2386,31 +2414,52 @@ function drawPostLayer() {
   ctx.globalCompositeOperation = 'source-over';
 }
 
-/* Freistehender Text: warmes Off-White mit weichem dunklem Schatten,
-   damit er auf jedem Untergrund lesbar bleibt. Kein Kasten, kein reines Weiß. */
-const OFFWHITE = '#f2e8d5';
-const OFFWHITE_DIM = 'rgba(242,232,213,0.62)';
+/* Gut lesbare Meme-Untertitel-Optik: kräftiges Weiß mit klarer schwarzer
+   Kontur. Sie bleibt ohne Kasten direkt in der Szene, ist aber auch vor den
+   hellen Treppenhauswänden eindeutig lesbar. */
+const OFFWHITE = '#ffffff';
+const OFFWHITE_DIM = 'rgba(255,255,255,0.84)';
+function readableFont(font) {
+  let f = (font || '14px Arial, Helvetica, sans-serif')
+    .replace(/ui-monospace,\s*Consolas,\s*monospace/g, 'Arial, Helvetica, sans-serif');
+  if (/^\d+px/.test(f)) f = '700 ' + f;
+  else f = f.replace(/^600\s+/, '800 ');
+  return f;
+}
+function darkInk(color) {
+  const c = String(color || '').replace(/\s/g, '').toLowerCase();
+  return c.includes('48,38,27') || c === '#30261b' || c === '#3a2a06' || c === '#8a5a00';
+}
 function softText(str, x, y, font, color, align) {
-  ctx.font = font;
+  ctx.font = readableFont(font);
   ctx.textAlign = align || 'center';
   ctx.textBaseline = 'alphabetic';
   ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.8)';
-  ctx.shadowBlur = 3;
-  ctx.shadowOffsetY = 1.5;
+  const px = parseFloat((font || '').match(/(\d+)px/)?.[1] || 14);
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  ctx.lineWidth = px >= 16 ? 3.2 : 2.4;
+  ctx.strokeStyle = darkInk(color) ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.96)';
+  ctx.strokeText(str, x, y);
+  ctx.shadowColor = 'rgba(0,0,0,0.72)';
+  ctx.shadowBlur = 1.5;
+  ctx.shadowOffsetY = 1;
   ctx.fillStyle = color || OFFWHITE;
   ctx.fillText(str, x, y);
   ctx.restore();
 }
 
-/* Displayschrift (schwer, schmal) — nur Ergebniszeile und große Zahl.
-   Knapper harter Schatten statt breitem weichem — wirkt weniger billig. */
-const FONT_DISPLAY = (px) => '900 ' + px + 'px "Arial Narrow", Impact, sans-serif';
+/* Schwere, klare Sans-Serif für Ergebniszeilen und große Zahlen. */
+const FONT_DISPLAY = (px) => '900 ' + px + 'px "Arial Black", Arial, Helvetica, sans-serif';
 function hardText(str, x, y, font, color, align, alpha) {
-  ctx.font = font; ctx.textAlign = align || 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.font = readableFont(font); ctx.textAlign = align || 'center'; ctx.textBaseline = 'alphabetic';
   ctx.save();
   if (alpha != null) ctx.globalAlpha = alpha;
-  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillText(str, x + 1.5, y + 2.5);
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  ctx.lineWidth = 4.2;
+  ctx.strokeStyle = darkInk(color) ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.98)';
+  ctx.strokeText(str, x, y);
   ctx.fillStyle = color || OFFWHITE; ctx.fillText(str, x, y);
   ctx.restore();
 }
