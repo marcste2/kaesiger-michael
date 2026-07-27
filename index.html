@@ -75,6 +75,53 @@
   /* Startseite: Modus-Auswahl */
   #playBtn      { left: 50%; bottom: 33%; transform: translateX(-50%); display: none; font-size: 26px; font-weight: 700; padding: 12px 28px; white-space: nowrap; }
   #challengeBtn { left: 50%; bottom: 21%; transform: translateX(-50%); display: none; font-size: 14px; opacity: 0.85; padding: 10px 14px; text-align: center; line-height: 1.5; white-space: nowrap; }
+  #infoBtn   { left: 50%; bottom: 4%; transform: translateX(-50%); display: none; font-size: 12px; opacity: 0.68; padding: 8px 18px; white-space: nowrap; }
+  #infoWrap {
+    position: fixed;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    display: none;
+    width: min(350px, calc(100vw - 32px));
+    max-height: min(610px, calc(100vh - 48px));
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: 24px 22px 20px;
+    z-index: 12;
+    color: #fff;
+    background: rgba(5, 8, 11, 0.90);
+    border: 1px solid rgba(255,255,255,0.72);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.72);
+    font-family: Arial, Helvetica, sans-serif;
+    text-shadow: 0 1px 2px #000;
+    -webkit-text-stroke: 0;
+  }
+  #infoWrap h2 {
+    margin: 0 0 18px;
+    font-family: "Arial Black", Arial, Helvetica, sans-serif;
+    font-size: 24px;
+    line-height: 1.05;
+    letter-spacing: 0.01em;
+  }
+  #infoWrap h3 {
+    margin: 18px 0 6px;
+    font-family: "Arial Black", Arial, Helvetica, sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  #infoWrap p {
+    margin: 0 0 9px;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.42;
+  }
+  #infoClose {
+    position: static;
+    display: block;
+    margin: 20px auto 0;
+    font-size: 17px;
+    padding: 10px 20px;
+  }
   /* Endscreen-Aktionen, gestapelt in der unteren Bildhälfte */
   #againBtn  { left: 50%; bottom: 27%; transform: translateX(-50%); display: none; font-size: 24px; font-weight: 700; padding: 12px 34px; }
   #shareBtn  { left: 50%; bottom: 19%; transform: translateX(-50%); display: none; font-size: 17px; font-weight: 600; padding: 10px 26px; }
@@ -104,6 +151,17 @@
   <button class="ui" id="againBtn">Nochmal</button>
   <button class="ui" id="shareBtn">Teilen</button>
   <button class="ui" id="boardBtn">Bestenliste</button>
+  <button class="ui" id="infoBtn">Spielinfo</button>
+  <section id="infoWrap" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+    <h2 id="infoTitle">So funktioniert's</h2>
+    <h3>Stapeln</h3>
+    <p>Tippe, um Gegenstände auf die Türklinke zu stapeln. Je höher der Turm, desto mehr Punkte kannst du holen – und desto größer wird das Risiko.</p>
+    <h3>Spielstand</h3>
+    <p>Mit „Abhauen“ sicherst du die Punkte des Runs. Wirst du erwischt, werden die möglichen Punkte abgezogen – dein Spielstand fällt aber nie unter 0.</p>
+    <h3>Bestenliste</h3>
+    <p>Sie zeigt den höchsten Allzeit-Spielstand jedes Spielers und wird laufend aktualisiert. Deine beste Gesamtpunktzahl zählt, nicht nur eine einzelne Runde.</p>
+    <button class="ui" id="infoClose">Verstanden</button>
+  </section>
   <button class="ui" id="backBtn">Zurück</button>
   <div id="nameWrap" class="ui">
     <span class="lbl" id="nameLabel">Wähle deinen Benutzernamen</span>
@@ -305,12 +363,16 @@ const pauseFleeBtn = document.getElementById('pauseFleeBtn');
 const leaveBtn = document.getElementById('leaveBtn');
 const playBtn = document.getElementById('playBtn');
 const challengeBtn = document.getElementById('challengeBtn');
+const infoBtn = document.getElementById('infoBtn');
+const infoWrap = document.getElementById('infoWrap');
+const infoClose = document.getElementById('infoClose');
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* Sichtbarkeit der Bedienelemente je nach Zustand */
 function hideActionButtons() {
-  for (const b of [fleeBtn, againBtn, shareBtn, boardBtn, backBtn, pauseBtn, pauseFleeBtn, leaveBtn, playBtn, challengeBtn]) b.style.display = 'none';
+  for (const b of [fleeBtn, againBtn, shareBtn, boardBtn, backBtn, pauseBtn, pauseFleeBtn, leaveBtn, playBtn, challengeBtn, infoBtn]) b.style.display = 'none';
   nameWrap.style.display = 'none';
+  infoWrap.style.display = 'none';
 }
 function showAftermathButtons(needName) {
   hideActionButtons();
@@ -339,15 +401,26 @@ function showStartButtons() {
   playBtn.style.display = 'block';
   challengeBtn.style.display = 'block';
   boardBtn.style.display = 'block';
+  infoBtn.style.display = 'block';
   boardBtn.style.bottom = '';
-  for (const b of [playBtn, challengeBtn, boardBtn]) {
+  for (const b of [playBtn, challengeBtn, boardBtn, infoBtn]) {
     b.style.color = '';
     b.style.textShadow = '';
     b.style.webkitTextStroke = '';
   }
   boardBtn.style.opacity = '';
   boardBtn.style.pointerEvents = '';
+  infoBtn.style.opacity = '';
+  infoBtn.style.pointerEvents = '';
   updateChallengeLabel();
+}
+function showInfo() {
+  hideActionButtons();
+  infoWrap.style.display = 'block';
+}
+function closeInfo() {
+  infoWrap.style.display = 'none';
+  showStartButtons();
 }
 /* Challenge-Knopf zeigt entweder die Einladung oder das heutige Ergebnis
    samt Countdown bis Mitternacht (ein Versuch pro Tag). */
@@ -804,9 +877,13 @@ wire(challengeBtn, () => {
 // der erste Tipp legt den ersten Gegenstand auf der aktiven (linken) Tür ab.
 wire(againBtn, () => requestStart(G.mode === 'twodoor' ? 'twodoor' : 'endless', false));
 wire(boardBtn, () => openBoard());
+wire(infoBtn, () => showInfo());
+wire(infoClose, () => closeInfo());
 wire(backBtn, () => closeBoard());
 wire(nameOk, () => submitName());
 nameInput.addEventListener('pointerdown', (e) => e.stopPropagation());
+infoWrap.addEventListener('pointerdown', (e) => e.stopPropagation());
+infoWrap.addEventListener('click', (e) => e.stopPropagation());
 nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitName(); });
 
 /* Teilen — erzeugt ein 9:16-Bild und gibt es über die Web Share API aus,
