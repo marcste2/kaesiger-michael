@@ -1,0 +1,18 @@
+# Local development and editor configuration
+.claude/
+.vscode/
+.idea/
+
+# Dependencies and build artefacts
+node_modules/
+dist/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
