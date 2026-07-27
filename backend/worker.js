@@ -1,20 +1,10 @@
 const ALLOWED_ORIGINS = new Set([
   'https://marcste2.github.io',
 ]);
-const SCORE_MAX = 50000;
+const SCORE_MAX = 10000000;
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 12;
 const rateBuckets = new Map();
-
-function weekKey(date = new Date()) {
-  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const day = (d.getUTCDay() + 6) % 7;
-  d.setUTCDate(d.getUTCDate() - day + 3);
-  const firstThu = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
-  const week = 1 + Math.round(((d - firstThu) / 86400000 - 3 +
-    ((firstThu.getUTCDay() + 6) % 7)) / 7);
-  return d.getUTCFullYear() + '-W' + String(week).padStart(2, '0');
-}
 
 function cleanName(value) {
   let name = String(value || '').trim().replace(/\s+/g, ' ');
@@ -69,14 +59,12 @@ function rateLimited(request) {
 }
 
 async function leaderboard(env, playerId) {
-  const week = weekKey();
   const topResult = await env.DB.prepare(
     `SELECT player_id AS playerId, name, score, updated_at AS updatedAt
-     FROM scores
-     WHERE week = ?
+     FROM player_records
      ORDER BY score DESC, updated_at ASC, player_id ASC
      LIMIT 50`
-  ).bind(week).all();
+  ).all();
   const top = (topResult.results || []).map((row, index) => ({
     rank: index + 1,
     playerId: row.playerId,
@@ -89,18 +77,18 @@ async function leaderboard(env, playerId) {
     mine = await env.DB.prepare(
       `SELECT s.player_id AS playerId, s.name, s.score,
         1 + (
-          SELECT COUNT(*) FROM scores x
-          WHERE x.week = s.week AND (
+          SELECT COUNT(*) FROM player_records x
+          WHERE (
             x.score > s.score OR
             (x.score = s.score AND x.updated_at < s.updated_at) OR
             (x.score = s.score AND x.updated_at = s.updated_at AND x.player_id < s.player_id)
           )
         ) AS rank
-       FROM scores s
-       WHERE s.week = ? AND s.player_id = ?`
-    ).bind(week, playerId).first();
+       FROM player_records s
+       WHERE s.player_id = ?`
+    ).bind(playerId).first();
   }
-  return { week, top, mine: mine || null, updatedAt: Date.now() };
+  return { scope: 'alltime', top, mine: mine || null, updatedAt: Date.now() };
 }
 
 export default {
@@ -112,7 +100,7 @@ export default {
     if (!allowedRequest(request)) return json(request, { error: 'origin_not_allowed' }, 403);
 
     if (url.pathname === '/health' && request.method === 'GET') {
-      return json(request, { ok: true, week: weekKey() });
+      return json(request, { ok: true, scope: 'alltime' });
     }
 
     if (url.pathname === '/api/leaderboard' && request.method === 'GET') {
@@ -141,20 +129,19 @@ export default {
           score > SCORE_MAX) {
         return json(request, { error: 'invalid_score' }, 400);
       }
-      const week = weekKey();
       const now = Date.now();
       try {
         await env.DB.prepare(
-          `INSERT INTO scores (week, player_id, name, score, updated_at)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(week, player_id) DO UPDATE SET
+          `INSERT INTO player_records (player_id, name, score, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(player_id) DO UPDATE SET
              name = excluded.name,
-             score = MAX(scores.score, excluded.score),
+             score = MAX(player_records.score, excluded.score),
              updated_at = CASE
-               WHEN excluded.score > scores.score THEN excluded.updated_at
-               ELSE scores.updated_at
+               WHEN excluded.score > player_records.score THEN excluded.updated_at
+               ELSE player_records.updated_at
              END`
-        ).bind(week, playerId, name, score, now).run();
+        ).bind(playerId, name, score, now).run();
         return json(request, await leaderboard(env, playerId));
       } catch (error) {
         return json(request, { error: 'score_unavailable' }, 503);

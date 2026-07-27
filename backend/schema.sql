@@ -1,11 +1,10 @@
-CREATE TABLE IF NOT EXISTS scores (
-  week TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS player_records (
   player_id TEXT NOT NULL,
   name TEXT NOT NULL,
-  score INTEGER NOT NULL CHECK (score > 0 AND score <= 50000),
+  score INTEGER NOT NULL CHECK (score > 0 AND score <= 10000000),
   updated_at INTEGER NOT NULL,
-  PRIMARY KEY (week, player_id)
+  PRIMARY KEY (player_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_scores_week_rank
-ON scores (week, score DESC, updated_at ASC);
+CREATE INDEX IF NOT EXISTS idx_player_records_rank
+ON player_records (score DESC, updated_at ASC);

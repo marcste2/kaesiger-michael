@@ -845,9 +845,9 @@ function untilMidnight() {
 }
 
 /* ============================================================
-   BESTENLISTE — lokal, wöchentlich (Reset Mo 00:00 über den Wochen-
-   schlüssel). Gekapselt, sodass später nur ein Server-Datenlieferant
-   ergänzt werden muss; Darstellung bleibt identisch.
+   BESTENLISTE — höchster jemals erreichter Spielstand pro Gerät.
+   Der aktuelle Spielstand kann durch Niederlagen sinken; der Allzeit-
+   Rekord und der Bestenlistenwert sinken dagegen nie.
    ============================================================ */
 const PLAYER_ID_KEY = 'km_player_id';
 const LEADERBOARD_API = 'https://kaesiger-michael-leaderboard.stelzermarc10.workers.dev';
@@ -861,45 +861,34 @@ function playerId() {
   return id;
 }
 const LB = {
-  KEY: 'km_scores',
+  KEY: 'km_records_alltime',
   onlineRows: null,
-  onlineWeek: '',
+  onlineScope: '',
   mine: null,
   status: 'local',
   lastFetch: 0,
-  weekKey(date) {
-    // ISO-Kalenderwoche → "2026-W30"
-    const d = new Date(Date.UTC((date||new Date()).getFullYear(), (date||new Date()).getMonth(), (date||new Date()).getDate()));
-    const day = (d.getUTCDay() + 6) % 7;
-    d.setUTCDate(d.getUTCDate() - day + 3);
-    const firstThu = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
-    const week = 1 + Math.round(((d - firstThu) / 86400000 - 3 + ((firstThu.getUTCDay() + 6) % 7)) / 7);
-    return d.getUTCFullYear() + '-W' + String(week).padStart(2, '0');
-  },
   all() { try { return JSON.parse(localStorage.getItem(this.KEY) || '[]'); } catch (e) { return []; } },
-  save(list) { try { localStorage.setItem(this.KEY, JSON.stringify(list.slice(-200))); } catch (e) {} },
-  week(wk) {
-    wk = wk || this.weekKey();
-    if (this.onlineRows && this.onlineWeek === wk) return this.onlineRows;
-    return this.all().filter(e => e.week === wk).sort((a, b) => b.score - a.score);
+  save(list) { try { localStorage.setItem(this.KEY, JSON.stringify(list.slice(-100))); } catch (e) {} },
+  list() {
+    if (this.onlineRows && this.onlineScope === 'alltime') return this.onlineRows;
+    return this.all().sort((a, b) => b.score - a.score);
   },
   submit(name, score) {
     const list = this.all();
-    const week = this.weekKey();
     const id = playerId();
     let best = score | 0;
     for (const e of list) {
-      if (e.week === week && (e.playerId === id || e.me)) best = Math.max(best, e.score | 0);
+      if (e.playerId === id || e.me) best = Math.max(best, e.score | 0);
     }
-    const kept = list.filter(e => !(e.week === week && (e.playerId === id || e.me)));
-    kept.push({ playerId: id, name: name.slice(0, 12), score: best, week, ts: Date.now(), me: true });
+    const kept = list.filter(e => !(e.playerId === id || e.me));
+    kept.push({ playerId: id, name: name.slice(0, 12), score: best, scope: 'alltime', ts: Date.now(), me: true });
     this.save(kept);
     this.push(name, best);
   },
   applyOnline(data) {
     if (!data || !Array.isArray(data.top)) return;
     this.onlineRows = data.top;
-    this.onlineWeek = data.week || this.weekKey();
+    this.onlineScope = data.scope || 'alltime';
     this.mine = data.mine || null;
     this.status = 'online';
     this.lastFetch = Date.now();
@@ -948,6 +937,7 @@ function submitName() {
   if (n.length < 3) { nameInput.value = n; nameInput.focus(); return; }
   localStorage.setItem('km_name', n);
   nameWrap.style.display = 'none';
+  if (G.best > 0) LB.submit(n, G.best);
   if (pendingStart) {
     const next = pendingStart;
     pendingStart = null;
@@ -955,8 +945,8 @@ function submitName() {
     if (next.autoDrop) doDrop();
     return;
   }
-  if (G.outcome === 'escaped' && G.finalScore > 0) {
-    LB.submit(n, G.finalScore);
+  if (G.best > 0) {
+    LB.submit(n, G.best);
     G.submitted = true;
   }
   openBoard();
@@ -966,6 +956,8 @@ function openBoard() {
   G.boardFrom = (G.state === ST.BEAT2) ? ST.BEAT2 : ST.START;
   G.state = ST.BOARD;
   showBoardButtons();
+  const name = cleanName(localStorage.getItem('km_name') || '');
+  if (name && G.best > 0) LB.submit(name, G.best);
   LB.refresh();
 }
 function closeBoard() {
@@ -1054,9 +1046,13 @@ const G = {
   time: 0,
   stack: [],           // {ox, w, h, weight, noise, emoji, label}
   score: 0,
-  best: parseInt(localStorage.getItem('km_best') || '0', 10) || 0,
+  // Rekord = höchster jemals erreichter dauerhafter Spielstand.
+  best: Math.max(
+    parseInt(localStorage.getItem('km_record') || '0', 10) || 0,
+    parseInt(localStorage.getItem('km_bank') || '0', 10) || 0
+  ),
   newBest: false,
-  // Guthaben — bleibt über alle Runs erhalten: Entkommen addiert die gesicherten
+  // Spielstand — bleibt über alle Runs erhalten: Entkommen addiert die gesicherten
   // Punkte, Erwischtwerden zieht ab, was man gewonnen hätte; Minimum 0.
   bank: parseInt(localStorage.getItem('km_bank') || '0', 10) || 0,
   bankDelta: 0,        // tatsächlich verbuchte Änderung des letzten Runs (fürs Endbild)
@@ -1282,7 +1278,7 @@ function startBeat1(outcome) {
   if (G.mode === 'challenge' && !dailyDone()) {
     saveDaily(outcome === 'escaped' ? G.finalScore : 0, G.finalItems, outcome);
   }
-  // Guthaben verbuchen (einmal pro Run): Entkommen +gesicherte Punkte,
+  // Spielstand verbuchen (einmal pro Run): Entkommen +gesicherte Punkte,
   // Erwischt −was man gewonnen hätte; nie unter 0 (klug abhauen lohnt sich).
   if (!G.bankApplied) {
     G.bankApplied = true;
@@ -1291,6 +1287,18 @@ function startBeat1(outcome) {
     G.bank = Math.max(0, G.bank + nominal);
     G.bankDelta = G.bank - before;   // tatsächlich verbucht (Verlust bei 0 gedeckelt)
     localStorage.setItem('km_bank', String(G.bank));
+    // Allzeit-Rekord steigt nur, wenn der dauerhafte Spielstand ein neues Hoch
+    // erreicht. Die Bestenliste erhält genau diesen Wert, nie einen Rundenwert.
+    if (G.bank > G.best) {
+      G.best = G.bank;
+      G.newBest = true;
+      localStorage.setItem('km_record', String(G.best));
+    }
+    const name = cleanName(localStorage.getItem('km_name') || '');
+    if (name && G.best > 0) {
+      LB.submit(name, G.best);
+      G.submitted = true;
+    }
   }
   spillStackToFloor();   // fürs Aftermath: Sachen am Boden (auch bei Lärm-Tod)
   themeStop();
@@ -1302,14 +1310,6 @@ function startBeat1(outcome) {
 
 // aus Kompatibilität: der Lärm-/Einsturz-Tod ruft weiterhin beginFlood()
 function beginFlood() { startBeat1('caught'); }
-
-function recordSecuredScore() {
-  const name = cleanName(localStorage.getItem('km_name') || '');
-  if (name && G.finalScore > 0) {
-    LB.submit(name, G.finalScore);
-    G.submitted = true;
-  }
-}
 
 function returnToStartAfterSave() {
   G.state = ST.START;
@@ -1333,11 +1333,6 @@ function returnToStartAfterSave() {
 function escape(returnToStart) {
   if (G.state !== ST.PLAY && G.state !== ST.DROP) return;
   G.finalScore = G.score;
-  if (G.score > G.best) {
-    G.best = G.score;
-    G.newBest = true;
-    localStorage.setItem('km_best', String(G.best));
-  }
   // Freischaltung "Zwei Türen": ein gesicherter Endlos-Run mit genug Gegenständen
   if (G.mode === 'endless' && G.stack.length >= TWO_UNLOCK_ITEMS) {
     localStorage.setItem(TWO_DOOR_KEY, '1');
@@ -1345,7 +1340,6 @@ function escape(returnToStart) {
   // beim Abhauen fallen die Sachen NICHT — sauber gesichert, aber fürs
   // Aftermath-Bild trotzdem Trümmer aus dem Stapel erzeugen
   spillStackToFloor();
-  recordSecuredScore();
   startBeat1('escaped');
   if (returnToStart) returnToStartAfterSave();
 }
@@ -2178,9 +2172,9 @@ function drawHUD() {
   } else {
     softText('Rekord ' + G.best, 16, 120, '12px ui-monospace, Consolas, monospace', OFFWHITE_DIM, 'left');
   }
-  // Guthaben — was auf dem Spiel steht: bei Erwischt gehen die aktuellen Punkte
+  // Spielstand — was auf dem Spiel steht: bei Erwischt gehen die aktuellen Punkte
   // davon ab (bis 0), bei Abhauen kommen sie dazu
-  softText('Guthaben ' + G.bank, 16, 138, '12px ui-monospace, Consolas, monospace', OFFWHITE_DIM, 'left');
+  softText('Spielstand ' + G.bank, 16, 138, '12px ui-monospace, Consolas, monospace', OFFWHITE_DIM, 'left');
 
   // Erstspiel-Hinweis — verschwindet mit dem ersten selbst getippten Ablegen
   if (G.hintActive && !isTwo()) {
@@ -2245,8 +2239,8 @@ function drawStart() {
   }
   // "Jetzt spielen" und "Heutige Challenge" sind Knöpfe (DOM), damit beide
   // Modi gleichwertig antippbar sind; ein Tippen irgendwo startet den Endlosmodus.
-  // Guthaben als bleibender Wert oben betont, Rekord klein darunter.
-  softText('Guthaben: ' + G.bank, W / 2, 366, '600 16px ui-monospace, Consolas, monospace', `rgba(255,206,90,0.92)`);
+  // Spielstand als bleibender Wert oben betont, Allzeit-Rekord klein darunter.
+  softText('Spielstand: ' + G.bank, W / 2, 366, '600 16px ui-monospace, Consolas, monospace', `rgba(255,206,90,0.92)`);
   if (G.best > 0) softText('Rekord: ' + G.best, W / 2, 386, '12px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
 }
 
@@ -2318,27 +2312,23 @@ function drawBeat2() {
     softText('Nichts gesichert.', W / 2, 250, '15px ui-monospace, Consolas, monospace', withA(OFFWHITE_DIM, a));
   }
 
-  // 3) Guthaben: gesicherter Zugewinn bzw. Abzug + neuer Gesamtstand
+  // 3) Spielstand: gesicherter Zugewinn bzw. Abzug + neuer Gesamtstand
   const dl = G.bankDelta | 0;
   const dstr = (dl >= 0 ? '+' + dl : '−' + Math.abs(dl)) + ' Punkte';
   const bcol = dl >= 0 ? `rgba(255,206,90,${a})` : `rgba(214,126,98,${a})`;
   softText(dstr, W / 2, 336, '600 15px ui-monospace, Consolas, monospace', bcol);
-  softText('Guthaben: ' + G.bank, W / 2, 358, '13px ui-monospace, Consolas, monospace', withA(OFFWHITE, a));
+  softText('Spielstand: ' + G.bank, W / 2, 358, '13px ui-monospace, Consolas, monospace', withA(OFFWHITE, a));
 
   // 4) Bezug zum Rekord — der stärkste Wiederholungsanreiz
   let rec;
-  if (esc && G.newBest) rec = null; // "neuer rekord" wird betont extra gezeigt
+  if (G.newBest) rec = null; // "Neuer Rekord" wird betont extra gezeigt
   else if (G.best > 0) {
-    const ref = esc ? G.finalScore : G.lostScore;
-    const diff = G.best - ref;
+    const diff = G.best - G.bank;
     rec = diff > 0 ? ('Noch ' + diff + ' bis zu deinem Rekord') : ('Rekord: ' + G.best);
   }
   const recY = 396;
-  const nameOn = nameWrap.style.display !== 'none';
-  if (!nameOn) {   // bei aktivem Namensfeld sagt dessen Label schon "Neuer Rekord"
-    if (esc && G.newBest) hardText('Neuer Rekord', W / 2, recY, FONT_DISPLAY(26), COL.cheese, 'center', a);
-    else if (rec) softText(rec, W / 2, recY, '14px ui-monospace, Consolas, monospace', withA(OFFWHITE, a));
-  }
+  if (G.newBest) hardText('Neuer Rekord', W / 2, recY, FONT_DISPLAY(26), COL.cheese, 'center', a);
+  else if (rec) softText(rec, W / 2, recY, '14px ui-monospace, Consolas, monospace', withA(OFFWHITE, a));
 
   // 4–6) nochmal / teilen / bestenliste sind DOM-Buttons in der unteren Hälfte
 }
@@ -2353,7 +2343,7 @@ function drawBoard() {
   ctx.fillStyle = 'rgba(3,7,10,0.72)';
   ctx.fillRect(-200, -300, W + 400, H + 600);
   hardText('Bestenliste', W / 2, 90, FONT_DISPLAY(34), OFFWHITE);
-  softText('Diese Woche · ' + (LB.onlineWeek || LB.weekKey()), W / 2, 114, '11px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
+  softText('Allzeit · bester Spielstand', W / 2, 114, '11px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
 
   // Tagesliste der Challenge — wird um Mitternacht automatisch hinfällig
   const dr = dailyRecord();
@@ -2365,12 +2355,12 @@ function drawBoard() {
       '11px ui-monospace, Consolas, monospace', COL.cheese);
   }
 
-  const rows = LB.week();
+  const rows = LB.list();
   let y = 158;
   if (!rows.length) {
-    softText('Noch keine Einträge diese Woche.', W / 2, 200, '13px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
-    softText('Hau ab mit einem guten Lauf,', W / 2, 226, '12px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
-    softText('und trag dich ein.', W / 2, 244, '12px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
+    softText('Noch keine Spielstände.', W / 2, 200, '13px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
+    softText('Sichere Punkte und hol dir', W / 2, 226, '12px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
+    softText('den ersten Allzeit-Rekord.', W / 2, 244, '12px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
   } else {
     const top = rows.slice(0, 12);
     for (let i = 0; i < top.length; i++) {
@@ -2398,7 +2388,7 @@ function drawBoard() {
     : 'Auf diesem Gerät';
   softText(lbStatus, W / 2, 535, '10px ui-monospace, Consolas, monospace',
     LB.status === 'online' ? COL.cheese : OFFWHITE_DIM);
-  softText('Nur Name + Punkte, kein Konto, kein Tracking.', W / 2, 560, '10px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
+  softText('Nur Name + Spielstand, kein Konto, kein Tracking.', W / 2, 560, '10px ui-monospace, Consolas, monospace', OFFWHITE_DIM);
 }
 
 /* Beat-1-Flut auf der VOLLBILD-Ebene (Geräte-Koordinaten): Strahlen und
