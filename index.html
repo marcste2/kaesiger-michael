@@ -154,7 +154,8 @@ const TUNE = {
 
 const STAIR = {
   triggerAboveFrame: 80, // ungefähr zwei Gegenstandshöhen über der Türzarge
-  transitionDuration: 0.9,
+  previewFromHeight: 100, // schon nach etwa drei Gegenständen oberhalb der Zarge sichtbar
+  transitionDuration: 1.15,
   anchorX: 200,          // Mitte des vorderen Treppengeländers
   anchorY: 642,          // Oberkante des Geländers in der 400×720-Welt
 };
@@ -313,6 +314,15 @@ function showAftermathButtons(needName) {
   shareBtn.style.display = 'block';
   boardBtn.style.display = 'block';
   boardBtn.style.bottom = '';               // Standardposition (CSS) für den Endscreen
+  setAftermathButtonFade(0);
+}
+function setAftermathButtonFade(a) {
+  a = clamp(a, 0, 1);
+  againBtn.style.opacity = String(a);
+  shareBtn.style.opacity = String(a);
+  boardBtn.style.opacity = String(0.72 * a);
+  const pe = a > 0.92 ? 'auto' : 'none';
+  againBtn.style.pointerEvents = shareBtn.style.pointerEvents = boardBtn.style.pointerEvents = pe;
 }
 function showStartButtons() {
   hideActionButtons();
@@ -323,6 +333,8 @@ function showStartButtons() {
   twodoorBtn.style.display = two ? 'block' : 'none';
   boardBtn.style.display = 'block';
   boardBtn.style.bottom = two ? '5%' : '';   // unter "Zwei Türen" rutschen, sonst Standard
+  boardBtn.style.opacity = '';
+  boardBtn.style.pointerEvents = '';
   updateChallengeLabel();
 }
 /* Challenge-Knopf zeigt entweder die Einladung oder das heutige Ergebnis
@@ -393,12 +405,23 @@ function twoDoorUnlocked() { return localStorage.getItem(TWO_DOOR_KEY) === '1'; 
 function isTwo() { return G.mode === 'twodoor'; }
 function inStairs() { return G.level === 'stairs' && !isTwo(); }
 function stairCaught() { return G.caughtLevel === 'stairs' && G.outcome === 'caught'; }
-function levelEase() {
-  const p = clamp(G.levelBlend || 0, 0, 1);
+function smooth01(p) {
+  p = clamp(p, 0, 1);
   return p * p * (3 - 2 * p);
 }
-function stackAnchorX() { return lerp(TUNE.handleX, STAIR.anchorX, levelEase()); }
-function stackAnchorY() { return lerp(TUNE.handleY, STAIR.anchorY, levelEase()); }
+function stairTriggerHeight() {
+  return TUNE.handleY - (FRAME.y - STAIR.triggerAboveFrame);
+}
+function stairPreviewAmount() {
+  if (isTwo()) return 0;
+  if (inStairs()) return 1;
+  return smooth01((stackHeight() - STAIR.previewFromHeight) /
+    Math.max(1, stairTriggerHeight() - STAIR.previewFromHeight));
+}
+function anchorEase() { return smooth01(G.anchorBlend || 0); }
+function visualLevelEase() { return smooth01(G.levelBlend || 0); }
+function stackAnchorX() { return lerp(TUNE.handleX, STAIR.anchorX, anchorEase()); }
+function stackAnchorY() { return lerp(TUNE.handleY, STAIR.anchorY, anchorEase()); }
 function makeDoorState() {
   return {
     stack: [], noise: 0, swingPos: 0, swingDir: 1, swingSpeed: TUNE.swingSpeedBase,
@@ -1089,7 +1112,10 @@ const G = {
   mode: 'endless',     // 'endless' | 'challenge' | 'twodoor'
   rng: Math.random,    // in der Challenge: deterministisch aus dem Datum
   level: 'door',       // 'door' | 'stairs' – derselbe Run läuft nahtlos weiter
-  levelBlend: 0,       // weiche Überblendung und Ankerfahrt ins Treppenhaus
+  levelBlend: 0,       // visuelle Überblendung ins Treppenhaus
+  levelBlendFrom: 0,
+  entryPreview: 0,
+  anchorBlend: 0,      // getrennt davon: Fahrt der Stapelauflage aufs Geländer
   levelTransitionT: 0,
   levelVisualTop: 0,
   caughtLevel: 'door', // Szene, in der der Run endete (für die Erwischt-Animation)
@@ -1186,8 +1212,12 @@ function enterStairsLevel() {
   if (isTwo() || inStairs()) return;
   // Die sichtbare Stapelspitze bleibt während des Szenenwechsels exakt stehen.
   G.levelVisualTop = stackTopY() + G.cam;
+  const preview = stairPreviewAmount();
   G.level = 'stairs';
+  G.entryPreview = preview;
   G.levelBlend = 0;
+  G.levelBlendFrom = 0;
+  G.anchorBlend = 0;
   G.levelTransitionT = STAIR.transitionDuration;
   G.camAnimT = 0;
   G.inputLockUntil = G.time + STAIR.transitionDuration + CAM_DUR;
@@ -1210,6 +1240,9 @@ function startRun(mode) {
   G.outcome = null;
   G.level = 'door';
   G.levelBlend = 0;
+  G.levelBlendFrom = 0;
+  G.entryPreview = 0;
+  G.anchorBlend = 0;
   G.levelTransitionT = 0;
   G.levelVisualTop = 0;
   G.caughtLevel = 'door';
@@ -1372,6 +1405,9 @@ function returnToStartAfterSave() {
   G.noise = 0;
   G.level = 'door';
   G.levelBlend = 0;
+  G.levelBlendFrom = 0;
+  G.entryPreview = 0;
+  G.anchorBlend = 0;
   G.levelTransitionT = 0;
   G.caughtLevel = 'door';
   G.floodT = 0;
@@ -1771,6 +1807,8 @@ function update(dt) {
 
   if (G.state === ST.BEAT2) {
     G.beat2T += dt;
+    // Aktionen erscheinen erst, wenn die Weißblende sichtbar abgeebbt ist.
+    setAftermathButtonFade(smooth01((G.beat2T - 0.38) / 0.52));
     // Trümmer nachfallen lassen, falls noch in der Luft
     for (const d of G.debris) {
       if (d.grounded) continue;
@@ -1801,12 +1839,15 @@ function update(dt) {
   // CAM_DUR; während Zielen und Fall steht sie vertikal still. Zeitbasiert. ---
   if (G.levelTransitionT > 0) {
     G.levelTransitionT = Math.max(0, G.levelTransitionT - dt);
-    G.levelBlend = 1 - G.levelTransitionT / STAIR.transitionDuration;
+    const lp = 1 - G.levelTransitionT / STAIR.transitionDuration;
+    G.anchorBlend = lp;
+    G.levelBlend = lerp(G.levelBlendFrom, 1, smooth01(lp));
     // Der neue Auflagepunkt fährt nach unten aufs Geländer; die Kamera gleicht
     // genau dagegen aus, damit die Turmspitze beim Szenenwechsel nicht springt.
     G.cam = G.levelVisualTop - stackTopY();
     if (G.levelTransitionT <= 0) {
       G.levelBlend = 1;
+      G.anchorBlend = 1;
       G.camFrom = G.cam;
       G.camTarget = camTargetFor(stackHeight());
       G.camAnimT = CAM_DUR;
@@ -1870,6 +1911,13 @@ const stairNormalLandscape = new Image(); stairNormalLandscape.src = STAIR_NORMA
 const stairNormalPortrait = new Image(); stairNormalPortrait.src = STAIR_NORMAL_PORTRAIT_IMG;
 const stairCaughtLandscape = new Image(); stairCaughtLandscape.src = STAIR_CAUGHT_LANDSCAPE_IMG;
 const stairCaughtPortrait = new Image(); stairCaughtPortrait.src = STAIR_CAUGHT_PORTRAIT_IMG;
+// Alle vier Keyframes sofort asynchron decodieren. So muss der Browser beim
+// ersten sichtbaren Treppenhaus-Frame keine große Bilddatei auf dem Hauptthread
+// entpacken – der Übergang bleibt auch auf Mittelklasse-Handys flüssig.
+for (const im of [stairNormalLandscape, stairNormalPortrait, stairCaughtLandscape, stairCaughtPortrait]) {
+  im.decoding = 'async';
+  if (im.decode) im.decode().catch(() => {});
+}
 let bgWall = '#c9c8c6', bgWallDark = '#0a0d10';
 bgCalm.addEventListener('load', () => {
   try {
@@ -1920,10 +1968,6 @@ function drawCoverWorld(img, alpha) {
   const dw = img.naturalWidth * sc, dh = img.naturalHeight * sc;
   ctx.save();
   ctx.globalAlpha = clamp(alpha == null ? 1 : alpha, 0, 1);
-  // Beim Hochfahren der Folgekamera dürfen oberhalb des Fotos keine leeren
-  // Streifen entstehen. Die äußersten Bildzeilen werden ruhig weitergeführt.
-  ctx.drawImage(img, 0, 0, img.naturalWidth, 3, x, -1200, worldW, 1200);
-  ctx.drawImage(img, 0, img.naturalHeight - 3, img.naturalWidth, 3, x, H, worldW, 1200);
   ctx.beginPath();
   ctx.rect(x, 0, worldW, worldH);
   ctx.clip();
@@ -1931,27 +1975,84 @@ function drawCoverWorld(img, alpha) {
   ctx.restore();
 }
 
+/* Früh sichtbarer Blick ins Treppenhaus: nur der Bereich oberhalb der Zarge wird
+   ersetzt. Der Clip sitzt in der fahrenden Türwelt, das Bild selbst bleibt durch
+   das Gegenverschieben der Kamera ruhig – dadurch wirkt es wie ein echter Raum,
+   der hinter der Türszene bereits wartet. */
+function drawStairBand(img, alpha, cancelCam, y0, y1) {
+  if (alpha <= 0.001 || y1 <= y0) return;
+  const worldW = Math.max(W, view.cw / Math.max(0.001, view.ws || view.s));
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect((W - worldW) / 2 - 4, y0, worldW + 8, y1 - y0);
+  ctx.clip();
+  ctx.translate(0, -cancelCam);
+  drawCoverWorld(img, alpha);
+  ctx.restore();
+}
+
+function drawStairPreviewLayer(img, alpha, cancelCam) {
+  if (alpha <= 0.001 || !img || !img.complete || !img.naturalWidth) return;
+  const top = LS.on ? LS.door.y : FRAME.y;
+  const feather = 72, bands = 4, y0 = top - feather * 0.65, y1 = top + feather * 0.35;
+  drawStairBand(img, alpha, cancelCam, -1400, y0);
+  for (let i = 0; i < bands; i++) {
+    const a = i / bands, b = (i + 1) / bands;
+    drawStairBand(img, alpha * (1 - smooth01((a + b) * 0.5)), cancelCam,
+      lerp(y0, y1, a), lerp(y0, y1, b));
+  }
+}
+
+function drawStairTakeoverLayer(img, alpha, cancelCam) {
+  if (alpha <= 0.001 || !img || !img.complete || !img.naturalWidth) return;
+  const top = LS.on ? LS.door.y : FRAME.y;
+  const feather = 72, bands = 4, y0 = top - feather * 0.65, y1 = top + feather * 0.35;
+  for (let i = 0; i < bands; i++) {
+    const a = i / bands, b = (i + 1) / bands;
+    drawStairBand(img, alpha * smooth01((a + b) * 0.5), cancelCam,
+      lerp(y0, y1, a), lerp(y0, y1, b));
+  }
+  drawStairBand(img, alpha, cancelCam, y1, H + 1400);
+}
+
+function drawStairPreview() {
+  if (inStairs() || isTwo()) return;
+  if (G.state !== ST.PLAY && G.state !== ST.DROP) return;
+  const amount = stairPreviewAmount();
+  if (amount <= 0.001) return;
+  const normal = view.letterbox ? stairNormalLandscape : stairNormalPortrait;
+  drawStairPreviewLayer(normal, amount, G.cam);
+}
+
 function drawStairWorld() {
   const portrait = !view.letterbox;
   const normal = portrait ? stairNormalPortrait : stairNormalLandscape;
   const caught = portrait ? stairCaughtPortrait : stairCaughtLandscape;
-  const blend = levelEase();
+  const blend = visualLevelEase();
   const dx = doorShakeOffset();
   const cancelCam = G.state === ST.BEAT1 ? 0 : G.cam;
 
   ctx.save();
-  // Das Treppenhaus bleibt als vollständiger Kameraausschnitt stehen. Der bereits
-  // sehr hohe Turm wird separat von der Folgekamera geführt; so entstehen am
-  // oberen Bildschirmrand keine gestreckten Bildstreifen.
-  ctx.translate(0, -cancelCam);
   ctx.translate(dx, 0);
-  // Während des Levelwechsels bleibt die alte Flurszene noch kurz sichtbar.
+  // Während der Übernahme bleibt die alte Flurszene darunter. Der bereits vorher
+  // sichtbare Treppenhausbereich oberhalb der Zarge verschwindet dabei nie.
   if (blend < 0.999) {
+    // Die alte Tür fährt bis zum Ende mit ihrer bisherigen Folgekamera weiter,
+    // damit ihre echte Zarge exakt an der Vorschau-Kante bleibt.
     drawCoverWorld(portrait ? doorImg : bgCalm, 1);
+    drawStairPreviewLayer(normal, G.entryPreview, cancelCam);
+    drawStairTakeoverLayer(normal, blend, cancelCam);
+  } else {
+    ctx.save();
+    ctx.translate(0, -cancelCam);
+    drawCoverWorld(normal, 1);
+    ctx.restore();
   }
-  drawCoverWorld(normal, blend);
   if (G.state === ST.BEAT1 && stairCaught()) {
-    drawCoverWorld(caught, clamp(G.floodT / 0.42, 0, 1));
+    ctx.save();
+    ctx.translate(0, -cancelCam);
+    drawCoverWorld(caught, smooth01(G.floodT / 0.55));
+    ctx.restore();
   }
   // Im Treppenhaus ersetzt ein Licht aus dem Schacht den Türspalt als natürliche
   // Gefahrenanzeige. Es wird stärker, je näher Michael kommt.
@@ -1961,6 +2062,7 @@ function drawStairWorld() {
     const a = 0.035 + nf * 0.24 + flicker;
     const x = stackAnchorX(), y = stackAnchorY() - 8;
     ctx.save();
+    ctx.translate(0, -cancelCam);
     ctx.globalCompositeOperation = 'lighter';
     const glow = ctx.createRadialGradient(x, y, 4, x, y, 180 + nf * 120);
     glow.addColorStop(0, `rgba(255,226,120,${a})`);
@@ -2631,6 +2733,16 @@ function drawFullscreenLight() {
   const gy = w2dy(view.wGapY != null ? view.wGapY : DOOR.y + DOOR.h * 0.4);
 
   if (G.state === ST.BEAT1) { drawBeat1Fullscreen(gx, gy); return; }
+  if (G.state === ST.BEAT2 && stairCaught()) {
+    // Der nahezu weiße Höhepunkt bleibt kurz stehen und ebbt weich ab. Dadurch
+    // gibt es beim Wechsel vom Hand-Keyframe zum Endscreen keinen harten Frame.
+    const a = 1 - smooth01(G.beat2T / 0.82);
+    if (a > 0.001) {
+      ctx.fillStyle = `rgba(255,247,226,${a})`;
+      ctx.fillRect(0, 0, cw, ch);
+    }
+    return;
+  }
   if (G.state === ST.BEAT2 || G.state === ST.BOARD || G.state === ST.START) return;
   if (G.paused) return;   // Pause bleibt ruhig — kein Spaltschein-Spill
 
@@ -2719,9 +2831,10 @@ function drawLandscapeEndBg(cw, ch) {
     }
   } else {
     // BEAT2 / BOARD: vom jeweiligen Ausgangsbild langsam auf die Ziegelwand
-    const fromImg = (G.outcome === 'caught') ? bgOpen : bgCalm;
+    const fromImg = stairCaught() ? stairCaughtLandscape :
+      ((G.outcome === 'caught') ? bgOpen : bgCalm);
     coverImg(fromImg, 1);
-    coverImg(bgBrick, clamp(G.beat2T / 0.6, 0, 1));      // weiche, langsamere Blende
+    coverImg(bgBrick, smooth01(G.beat2T / (stairCaught() ? 0.82 : 0.6)));
   }
 }
 
@@ -2898,6 +3011,7 @@ function render() {
     ctx.drawImage(bgCalm, 0, ih - 3, iw, 3, LS.imgLeftW, LS.imgTopW + LS.imgHW, LS.imgWW, EXT); // Boden nach unten
     ctx.drawImage(bgCalm, LS.imgLeftW, LS.imgTopW, LS.imgWW, LS.imgHW);
     drawScene();
+    drawStairPreview();
     drawStack();
     drawDrop();
     drawIndicator();
@@ -2905,6 +3019,7 @@ function render() {
     LS.on = false;
   } else {
     drawScene();
+    drawStairPreview();
     drawStack();
     drawDrop();
     drawIndicator();
